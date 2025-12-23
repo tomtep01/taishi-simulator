@@ -5,6 +5,8 @@ import { HistoryRoadmap } from './components/HistoryRoadmap';
 import { DealerChat } from './components/DealerChat';
 import { DepositModal } from './components/DepositModal';
 import { HistoryModal } from './components/HistoryModal';
+import { SettingsModal } from './components/SettingsModal';
+import { AdminPanel } from './components/AdminPanel';
 import { GameState, BetOption, DiceResult, GameHistoryItem, ChatMessage, UserBetHistoryItem } from './types';
 import { CHIP_VALUES, INITIAL_BALANCE, BETTING_TIME } from './constants';
 import { getDealerCommentary } from './services/geminiService';
@@ -13,6 +15,7 @@ import {
   getRandomUserChat, 
   getRandomDealerMessage, 
   generateBotBet, 
+  getRandomSpamComplaint
 } from './utils/simulation';
 import { audioManager } from './utils/audio';
 
@@ -41,6 +44,17 @@ const HistoryIcon = () => (
   </svg>
 );
 
+const SettingsIcon = ({ alert }: { alert: boolean }) => (
+  <div className="relative">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-slate-300 hover:text-white">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M10.343 3.94c.09-.542.56-.94 1.11-.94h1.093c.55 0 1.02.398 1.11.94l.149.894c.07.424.384.764.78.93.398.164.855.142 1.205-.108l.737-.527a1.125 1.125 0 011.45.12l.773.774c.39.389.44 1.002.12 1.45l-.527.737c-.25.35-.272.806-.107 1.204.165.397.505.71.93.78l.893.15c.543.09.94.56.94 1.11v1.094c0 .55-.397 1.02-.94 1.11l-.894.149c-.424.07-.764.383-.929.78-.165.398-.143.854.107 1.204l.527.738c.32.447.269 1.06-.12 1.45l-.774.773a1.125 1.125 0 01-1.449.12l-.738-.527c-.35-.25-.806-.272-1.203-.107-.397.165-.71.505-.781.929l-.149.894c-.09.542-.56.94-1.11.94h-1.094c-.55 0-1.019-.398-1.11-.94l-.148-.894c-.071-.424-.384-.764-.781-.93-.398-.164-.854-.142-1.204.108l-.738.527c-.447.32-1.06.269-1.45-.12l-.773-.774a1.125 1.125 0 01-.12-1.45l.527-.737c.25-.35.273-.806.108-1.204-.165-.397-.505-.71-.93-.78l-.894-.15c-.542-.09-.94-.56-.94-1.11V9.825c0-.55.398-1.02.94-1.11l.894-.149c.424-.07.765-.383.93-.78.165-.398.143-.854-.108-1.204l-.526-.738a1.125 1.125 0 01.12-1.45l.773-.773a1.125 1.125 0 011.45-.12l.737.527c.35.25.807.272 1.204.107.397-.165.71-.505.78-.929l.15-.894z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+      </svg>
+      {alert && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full animate-ping"></span>}
+      {alert && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full"></span>}
+  </div>
+);
+
 const App: React.FC = () => {
   // State
   const [balance, setBalance] = useState(INITIAL_BALANCE);
@@ -49,15 +63,35 @@ const App: React.FC = () => {
   const [selectedChip, setSelectedChip] = useState<number>(CHIP_VALUES[0]);
   const [gameState, setGameState] = useState<GameState>(GameState.IDLE);
   const [countdown, setCountdown] = useState(BETTING_TIME);
-  const [dice, setDice] = useState<[number, number, number]>([1, 1, 1]); // Initial visual
+  const [dice, setDice] = useState<[number, number, number]>([1, 1, 1]); 
   const [history, setHistory] = useState<GameHistoryItem[]>([]);
   const [userHistory, setUserHistory] = useState<UserBetHistoryItem[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [lastWin, setLastWin] = useState<number>(0);
   const [onlineCount, setOnlineCount] = useState<number>(1243);
+  const [username, setUsername] = useState("Tôi");
+
+  // Modals
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
   
+  // Admin / Secret Stuff
+  const [isAdminUnlocked, setIsAdminUnlocked] = useState(false);
+  const [isAdminEnabled, setIsAdminEnabled] = useState(false);
+  const [hasNewSettingAlert, setHasNewSettingAlert] = useState(false);
+  // We determine the result at the START of the round (to allow "prediction")
+  const [preDeterminedResult, setPreDeterminedResult] = useState<[number, number, number] | null>(null);
+  const [forcedResult, setForcedResult] = useState<[number, number, number] | null>(null);
+
+  // Chat Spam / Ban State
+  const [lastMessageTimes, setLastMessageTimes] = useState<number[]>([]);
+  const [spamViolationCount, setSpamViolationCount] = useState(0); // Consecutive violations
+  const [spamThreshold, setSpamThreshold] = useState(4); // Messages per second
+  const [isChatBanned, setIsChatBanned] = useState(false);
+  const [banUntil, setBanUntil] = useState(0);
+  const [nextBanDuration, setNextBanDuration] = useState(60000); // Start 1 minute
+
   // Audio State
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [musicEnabled, setMusicEnabled] = useState(false);
@@ -89,17 +123,96 @@ const App: React.FC = () => {
         text,
         timestamp: Date.now()
       };
-      // Keep last 50 messages
       return [...prev.slice(-49), newMsg];
     });
   }, []);
+
+  // Handle Ban Timer
+  useEffect(() => {
+     let interval: ReturnType<typeof setInterval>;
+     if (isChatBanned) {
+         interval = setInterval(() => {
+             if (Date.now() > banUntil) {
+                 setIsChatBanned(false);
+                 addMessage("Bạn đã được gỡ cấm chat. Vui lòng không spam.", "SYSTEM");
+                 clearInterval(interval);
+             }
+         }, 1000);
+     }
+     return () => clearInterval(interval);
+  }, [isChatBanned, banUntil, addMessage]);
+
+  const handleSendMessage = (text: string) => {
+    const now = Date.now();
+
+    // Check existing ban
+    if (isChatBanned) {
+        if (now < banUntil) return; // Should be handled by UI, but double check
+    }
+
+    // SPAM DETECTION
+    // Clean up old timestamps (older than 1 sec)
+    const recent = lastMessageTimes.filter(t => t > now - 1000);
+    // Add new one
+    recent.push(now);
+    setLastMessageTimes(recent);
+
+    // Check rate
+    if (recent.length > spamThreshold) {
+        const newViolationCount = spamViolationCount + 1;
+        setSpamViolationCount(newViolationCount);
+
+        // Warning Phase (Sustained spam for ~2-4 seconds effectively, depending on threshold)
+        // Let's say if they spam for 5 consecutive messages over the limit, bots start yelling
+        if (newViolationCount === 3 || newViolationCount === 5 || newViolationCount === 7) {
+            // Trigger bot complaint
+            setTimeout(() => {
+                addMessage(getRandomSpamComplaint(), "USER", generateBotName());
+            }, 200);
+        }
+
+        // Ban Phase (Sustained spam for ~8+ "events")
+        if (newViolationCount >= 10) {
+             const duration = nextBanDuration;
+             const until = now + duration;
+             
+             setIsChatBanned(true);
+             setBanUntil(until);
+             
+             // Calculate display duration
+             const mins = duration / 60000;
+             addMessage(`Bạn bị cấm chat ${mins} phút do spam.`, "SYSTEM");
+             
+             // Double next ban, cap at 32 mins
+             setNextBanDuration(prev => Math.min(prev * 2, 32 * 60000));
+             setSpamViolationCount(0); // Reset violation count after ban
+             return; // Block this message
+        }
+
+    } else {
+        // Cooldown: If they stop spamming, slowly reduce the violation count
+        if (spamViolationCount > 0) {
+            setSpamViolationCount(prev => Math.max(0, prev - 1));
+        }
+    }
+
+    addMessage(text, 'USER', username);
+  };
+
+  const handleUnbanChat = () => {
+     setIsChatBanned(false);
+     setBanUntil(0);
+     setSpamViolationCount(0);
+     // Optional: Reset ban duration progression or keep it strict? Let's reset it for the "God mode" feel
+     setNextBanDuration(60000); 
+     addMessage("Admin đã gỡ lệnh cấm chat cho bạn.", "SYSTEM");
+  };
 
   // Format currency
   const formatMoney = (amount: number) => {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
   };
 
-  // Compact format for button display (e.g. 1.2b, 500k)
   const compactMoney = (amount: number) => {
     if (amount >= 1000000000) return (amount / 1000000000).toFixed(1) + 'B';
     if (amount >= 1000000) return (amount / 1000000).toFixed(1) + 'M';
@@ -107,31 +220,56 @@ const App: React.FC = () => {
     return amount.toString();
   };
 
-  // Deposit Handler
+  // Deposit Handler with Secret Trigger
   const handleDeposit = (amount: number) => {
     setBalance(prev => prev + amount);
     audioManager.playWin();
     addMessage(`Nạp thành công ${formatMoney(amount)}`, 'SYSTEM');
+
+    // Secret Trigger
+    if ((amount === 67 || amount === 36) && !isAdminUnlocked) {
+        setIsAdminUnlocked(true);
+        setHasNewSettingAlert(true);
+        audioManager.playWin(); // Play sound twice for effect
+        setTimeout(() => {
+           addMessage("HỆ THỐNG VIP ĐÃ MỞ: Đã mở khóa tính năng ẩn trong Cài Đặt.", "SYSTEM");
+        }, 1000);
+    }
+  };
+
+  const openSettings = () => {
+    setShowSettingsModal(true);
+    setHasNewSettingAlert(false);
   };
 
   // Simulation Loop
   useEffect(() => {
-    // Fluctuate online count occasionally
     const onlineInterval = setInterval(() => {
       setOnlineCount(prev => prev + Math.floor(Math.random() * 5) - 2);
     }, 2000);
-
     return () => clearInterval(onlineInterval);
   }, []);
+
+  // Generate a random result helper
+  const generateRandomDice = (): [number, number, number] => {
+    return [
+      Math.floor(Math.random() * 6) + 1,
+      Math.floor(Math.random() * 6) + 1,
+      Math.floor(Math.random() * 6) + 1
+    ];
+  };
 
   // Game Phase Logic
   useEffect(() => {
     if (gameState === GameState.IDLE) {
       setCountdown(BETTING_TIME);
       setGameState(GameState.BETTING);
-      setCrowdBet({ [BetOption.TAI]: 0, [BetOption.XIU]: 0 }); // Reset crowd bets
+      setCrowdBet({ [BetOption.TAI]: 0, [BetOption.XIU]: 0 }); 
       
-      // Dealer opening message: Mix of pre-made and occasional AI check
+      // Determine the result for this round ahead of time (for prediction feature)
+      // If forcedResult is set, it overrides this later, but for "Prediction" we need a base reality
+      setPreDeterminedResult(generateRandomDice());
+
       addMessage(getRandomDealerMessage('OPEN'), "DEALER");
     }
 
@@ -152,48 +290,40 @@ const App: React.FC = () => {
         });
       }, 1000);
 
-      // Simulation of bots betting and chatting
+      // Simulation
       simulationRef.current = setInterval(() => {
-          // 40% chance a bot places a bet
           if (Math.random() < 0.4) {
             const { side, amount } = generateBotBet();
             setCrowdBet(prev => ({
               ...prev,
               [side]: prev[side] + amount
             }));
-
-            // 10% chance the bot announces the bet
             if (Math.random() < 0.1) {
                const name = generateBotName();
                addMessage(`Cược ${amount/1000}k ${side === BetOption.TAI ? 'Tài' : 'Xỉu'}`, "USER", name);
             }
           }
-
-          // 30% chance of random chat (spam)
           if (Math.random() < 0.3) {
              addMessage(getRandomUserChat(), "USER", generateBotName());
           }
-      }, 200); // Fast ticks for busy feel
+      }, 200); 
     } else {
-        // Stop simulation when not betting
         if (simulationRef.current) clearInterval(simulationRef.current);
     }
 
     if (gameState === GameState.ROLLING) {
-      audioManager.playRoll(); // SFX: Shake
-      
-      // Shake animation duration
+      audioManager.playRoll(); 
       setTimeout(() => {
         performRoll();
       }, 2000);
     }
 
     if (gameState === GameState.RESULT) {
-        // Wait before restarting
         setTimeout(() => {
             setGameState(GameState.IDLE);
             setCurrentBet({});
             setLastWin(0);
+            setPreDeterminedResult(null); // Clear previous prediction
         }, 6000);
     }
 
@@ -206,9 +336,19 @@ const App: React.FC = () => {
 
   // Logic to roll dice
   const performRoll = async () => {
-    const d1 = Math.floor(Math.random() * 6) + 1;
-    const d2 = Math.floor(Math.random() * 6) + 1;
-    const d3 = Math.floor(Math.random() * 6) + 1;
+    // RIGGING LOGIC: Use forced result if available, otherwise use pre-determined
+    let d1, d2, d3;
+    
+    if (forcedResult) {
+        [d1, d2, d3] = forcedResult;
+        setForcedResult(null); // Clear force after use? Or keep it? Let's clear it for fairness... lol
+    } else if (preDeterminedResult) {
+        [d1, d2, d3] = preDeterminedResult;
+    } else {
+        // Fallback (shouldn't happen given logic)
+        [d1, d2, d3] = generateRandomDice();
+    }
+
     const sum = d1 + d2 + d3;
     const isTriple = d1 === d2 && d2 === d3;
     const result: DiceResult = { d1, d2, d3, sum, isTriple };
@@ -223,15 +363,13 @@ const App: React.FC = () => {
     setDice([d1, d2, d3]);
     setGameState(GameState.REVEALING);
 
-    // Short reveal delay to lift the bowl
+    // Short reveal delay
     setTimeout(async () => {
         setGameState(GameState.RESULT);
-        audioManager.playSettle(); // SFX: Settle
+        audioManager.playSettle(); 
         
-        // Payout and History Recording
         let totalWin = 0;
         
-        // Check for TAI Bet
         if (currentBet[BetOption.TAI] && currentBet[BetOption.TAI]! > 0) {
             const betAmt = currentBet[BetOption.TAI]!;
             const isWin = winner === BetOption.TAI;
@@ -248,7 +386,6 @@ const App: React.FC = () => {
             }]);
         }
 
-        // Check for XIU Bet
         if (currentBet[BetOption.XIU] && currentBet[BetOption.XIU]! > 0) {
             const betAmt = currentBet[BetOption.XIU]!;
             const isWin = winner === BetOption.XIU;
@@ -268,30 +405,25 @@ const App: React.FC = () => {
         if (totalWin > 0) {
              setBalance(prev => prev + totalWin);
              setLastWin(totalWin);
-             audioManager.playWin(); // SFX: Win
+             audioManager.playWin(); 
         }
 
-        // Update Global History
         setHistory(prev => [...prev, {
             id: Date.now().toString(),
             result,
-            winner: winner || (sum >= 11 ? BetOption.TAI : BetOption.XIU) // For roadmap visual
+            winner: winner || (sum >= 11 ? BetOption.TAI : BetOption.XIU) 
         }]);
 
-        // Commentary Logic
-        // 1. Instant Reaction from pre-made list
         if (isTriple) addMessage(getRandomDealerMessage('TRIPLE'), "DEALER");
         else if (winner === BetOption.TAI) addMessage(getRandomDealerMessage('WIN_TAI'), "DEALER");
         else addMessage(getRandomDealerMessage('WIN_XIU'), "DEALER");
 
-        // 2. Async Gemini Commentary
         if (Math.random() > 0.3) {
             getDealerCommentary(sum, winner || "Triple", isTriple).then(comment => {
                 setTimeout(() => addMessage(comment, "DEALER"), 1500);
             });
         }
         
-        // 3. Fake user reactions
         setTimeout(() => {
            for(let i=0; i<3; i++) {
               addMessage(getRandomUserChat(), "USER", generateBotName());
@@ -308,7 +440,6 @@ const App: React.FC = () => {
         return;
     }
     
-    // Play sound if allowed
     audioManager.playChip(); 
 
     setBalance(prev => prev - selectedChip);
@@ -330,11 +461,12 @@ const App: React.FC = () => {
             <h1 className="font-display text-xl tracking-wider text-yellow-400 hidden sm:block">ROYAL CASINO</h1>
          </div>
          <div className="flex items-center gap-4 sm:gap-6">
-             {/* Sound Controls */}
              <div className="flex items-center gap-2 bg-slate-800/50 rounded-full px-2 py-1 border border-white/10">
                  <button onClick={() => setShowHistoryModal(true)} className="p-1 hover:bg-white/10 rounded-full transition-colors group relative">
                     <HistoryIcon />
-                    <span className="absolute top-full right-0 mt-2 text-[10px] bg-black px-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">Lịch sử</span>
+                 </button>
+                 <button onClick={openSettings} className="p-1 hover:bg-white/10 rounded-full transition-colors group relative">
+                    <SettingsIcon alert={hasNewSettingAlert} />
                  </button>
                  <button onClick={toggleMusic} className="p-1 hover:bg-white/10 rounded-full transition-colors">
                     <MusicIcon enabled={musicEnabled} />
@@ -346,10 +478,10 @@ const App: React.FC = () => {
 
              <div className="hidden md:flex items-center gap-1 text-xs text-slate-400">
                 <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-                <span>{onlineCount.toLocaleString()} online</span>
+                <span>{onlineCount.toLocaleString()} người online</span>
              </div>
             <div className="flex flex-col items-end">
-                <span className="text-[10px] text-slate-400 uppercase tracking-widest">Balance</span>
+                <span className="text-[10px] text-slate-400 uppercase tracking-widest">Số dư</span>
                 <div className="flex items-center gap-2">
                     <span className="font-display text-lg text-yellow-400 tracking-wide drop-shadow-lg">
                         {formatMoney(balance)}
@@ -368,14 +500,18 @@ const App: React.FC = () => {
       {/* Main Game Area */}
       <main className="flex-1 relative flex flex-col items-center justify-start py-4 bg-[url('https://www.transparenttextures.com/patterns/dark-leather.png')]">
         
-        {/* Dealer Chat Overlay (Desktop) */}
-        <DealerChat messages={messages} />
+        {/* Dealer Chat Overlay */}
+        <DealerChat 
+            messages={messages} 
+            onSendMessage={handleSendMessage} 
+            isBanned={isChatBanned}
+            banUntil={banUntil}
+        />
 
         {/* The Bowl & Dice */}
         <div className="relative mt-4 mb-8 w-72 h-72 sm:w-96 sm:h-96 flex items-center justify-center perspective-1000">
             {/* Plate */}
             <div className="absolute inset-0 rounded-full bg-slate-800 border-8 border-yellow-700 shadow-2xl flex items-center justify-center bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-700 via-slate-900 to-black">
-                 {/* Dice Container */}
                  <div className="flex gap-4 p-8">
                      {gameState !== GameState.ROLLING && (
                          <>
@@ -396,7 +532,6 @@ const App: React.FC = () => {
                     ${gameState === GameState.RESULT ? '-translate-y-40 opacity-0 pointer-events-none' : 'translate-y-0 opacity-100'}
                 `}
             >
-                {/* Dragon/Logo on Bowl */}
                 <div className="w-40 h-40 rounded-full border-4 border-yellow-300/30 flex items-center justify-center bg-black/20 backdrop-blur-sm">
                     <span className="font-display text-6xl text-yellow-300 font-bold opacity-80 select-none">龍</span>
                 </div>
@@ -413,7 +548,7 @@ const App: React.FC = () => {
             {gameState === GameState.RESULT && (
                 <div className="absolute -bottom-12 z-20 flex flex-col items-center animate-bounce">
                     <div className="bg-black/80 text-white px-6 py-2 rounded-full border-2 border-yellow-400 font-display text-2xl shadow-[0_0_20px_#facc15]">
-                        SUM: <span className="text-yellow-400 text-3xl mx-2">{dice[0]+dice[1]+dice[2]}</span>
+                        TỔNG: <span className="text-yellow-400 text-3xl mx-2">{dice[0]+dice[1]+dice[2]}</span>
                         {dice[0]+dice[1]+dice[2] >= 11 ? <span className="text-red-500">TÀI</span> : <span className="text-blue-400">XỈU</span>}
                     </div>
                     {lastWin > 0 && (
@@ -465,7 +600,7 @@ const App: React.FC = () => {
                 {/* Total Bet (Crowd) */}
                 <div className="absolute bottom-2 w-full text-center z-10">
                     <span className="text-white/60 text-xs font-mono bg-black/40 px-2 py-0.5 rounded">
-                        Total: {compactMoney((crowdBet[BetOption.TAI] || 0) + (currentBet[BetOption.TAI] || 0))}
+                        Tổng: {compactMoney((crowdBet[BetOption.TAI] || 0) + (currentBet[BetOption.TAI] || 0))}
                     </span>
                 </div>
             </button>
@@ -501,7 +636,7 @@ const App: React.FC = () => {
                  {/* Total Bet (Crowd) */}
                  <div className="absolute bottom-2 w-full text-center z-10">
                     <span className="text-white/60 text-xs font-mono bg-black/40 px-2 py-0.5 rounded">
-                        Total: {compactMoney((crowdBet[BetOption.XIU] || 0) + (currentBet[BetOption.XIU] || 0))}
+                        Tổng: {compactMoney((crowdBet[BetOption.XIU] || 0) + (currentBet[BetOption.XIU] || 0))}
                     </span>
                 </div>
             </button>
@@ -509,7 +644,7 @@ const App: React.FC = () => {
             {/* Center Status Text (Mobile Overlay) */}
             <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none z-20">
                 {gameState === GameState.IDLE && (
-                    <span className="text-white/50 text-xs uppercase tracking-widest bg-black/40 px-2 py-1 rounded">Waiting</span>
+                    <span className="text-white/50 text-xs uppercase tracking-widest bg-black/40 px-2 py-1 rounded">ĐANG CHỜ</span>
                 )}
             </div>
         </div>
@@ -547,7 +682,7 @@ const App: React.FC = () => {
              
              {/* Action Info */}
              <div className="text-center text-xs text-slate-400 font-mono">
-                {gameState === GameState.BETTING ? 'PLEASE PLACE YOUR BET' : 'BETS CLOSED'}
+                {gameState === GameState.BETTING ? 'VUI LÒNG ĐẶT CƯỢC' : 'ĐÃ KHÓA SỔ'}
              </div>
         </div>
       </footer>
@@ -564,6 +699,29 @@ const App: React.FC = () => {
          isOpen={showHistoryModal}
          onClose={() => setShowHistoryModal(false)}
          history={userHistory}
+      />
+      
+      {/* Settings Modal */}
+      <SettingsModal
+         isOpen={showSettingsModal}
+         onClose={() => setShowSettingsModal(false)}
+         username={username}
+         onUpdateUsername={setUsername}
+         isAdminUnlocked={isAdminUnlocked}
+         isAdminEnabled={isAdminEnabled}
+         onToggleAdmin={setIsAdminEnabled}
+      />
+
+      {/* Admin Panel (Side Menu) */}
+      <AdminPanel 
+         isOpen={isAdminEnabled}
+         preDeterminedResult={preDeterminedResult}
+         forcedResult={forcedResult}
+         onForceResult={setForcedResult}
+         spamThreshold={spamThreshold}
+         onSetSpamThreshold={setSpamThreshold}
+         isChatBanned={isChatBanned}
+         onUnbanChat={handleUnbanChat}
       />
 
     </div>

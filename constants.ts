@@ -1,5 +1,6 @@
+
 export const CHIP_VALUES = [1000, 5000, 10000, 50000, 100000, 500000];
-export const INITIAL_BALANCE = 10000000; // 10m
+export const INITIAL_BALANCE = 0; // Starts at 0
 export const BETTING_TIME = 15; // seconds
 export const REVEAL_TIME = 3; // seconds
 

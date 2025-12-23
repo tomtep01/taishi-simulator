@@ -1,3 +1,4 @@
+
 import { BetOption } from '../types';
 
 // Lowercase, no-accent names for realistic usernames
@@ -41,6 +42,13 @@ export const USER_CHATS = [
   "vkl", "clgt", "vl", "vcl", "omg", "wth", "vai chuong", "vai dan"
 ];
 
+// Messages when bots detect spam
+export const SPAM_COMPLAINTS = [
+  "spam cc gi vay", "spam lam gi cha", "admin ban no di", "nhuc dau qua",
+  "bot mom di", "noi it thoi", "loi tin nhan roi", "spam ban acc do",
+  "report no di ae", "chat cham thoi", "thang kia im di", "spam cai gi the"
+];
+
 export const DEALER_MESSAGES = {
   OPEN: [
     "Mời anh em đặt cược!", "Cầu đẹp, xuống tiền nào!", "Phiên mới bắt đầu.", 
@@ -76,6 +84,10 @@ export const generateBotName = (): string => {
 
 export const getRandomUserChat = (): string => {
   return USER_CHATS[Math.floor(Math.random() * USER_CHATS.length)];
+};
+
+export const getRandomSpamComplaint = (): string => {
+  return SPAM_COMPLAINTS[Math.floor(Math.random() * SPAM_COMPLAINTS.length)];
 };
 
 export const getRandomDealerMessage = (type: keyof typeof DEALER_MESSAGES): string => {
