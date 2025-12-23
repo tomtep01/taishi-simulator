@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 
 interface DepositModalProps {
@@ -12,7 +13,7 @@ export const DepositModal: React.FC<DepositModalProps> = ({ isOpen, onClose, onD
   const [amount, setAmount] = useState<number>(0);
   const [activeTab, setActiveTab] = useState<'BANKING' | 'MOMO' | 'CARD'>('BANKING');
 
-  const PRESETS = [100000, 500000, 1000000, 5000000, 10000000, 50000000, 100000000, 500000000];
+  const PRESETS = [500000, 1000000, 5000000, 10000000, 50000000, 100000000, 500000000, 1000000000];
 
   const handleDeposit = () => {
     if (amount > 0) {

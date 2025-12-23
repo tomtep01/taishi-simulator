@@ -3,6 +3,7 @@ export enum GameState {
   IDLE = 'IDLE',
   BETTING = 'BETTING',
   ROLLING = 'ROLLING',
+  MANUAL_REVEAL = 'MANUAL_REVEAL', // New state for hand reveal
   REVEALING = 'REVEALING',
   RESULT = 'RESULT'
 }

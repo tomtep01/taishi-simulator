@@ -9,6 +9,8 @@ interface SettingsModalProps {
   isAdminUnlocked: boolean;
   isAdminEnabled: boolean;
   onToggleAdmin: (enabled: boolean) => void;
+  isHandMode: boolean;
+  onToggleHandMode: (enabled: boolean) => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ 
@@ -18,7 +20,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onUpdateUsername,
   isAdminUnlocked,
   isAdminEnabled,
-  onToggleAdmin
+  onToggleAdmin,
+  isHandMode,
+  onToggleHandMode
 }) => {
   if (!isOpen) return null;
 
@@ -57,6 +61,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     className="w-full bg-black/40 border border-white/10 rounded-lg py-3 px-4 text-white font-sans text-sm focus:outline-none focus:border-yellow-500 transition-colors"
                 />
              </div>
+
+             {/* Squeeze Mode Toggle */}
+             <div className="bg-slate-800/50 border border-slate-700 p-4 rounded-lg flex items-center justify-between">
+                <div className="flex flex-col">
+                    <span className="text-white font-bold text-sm uppercase flex items-center gap-2">
+                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 text-yellow-500">
+                           <path strokeLinecap="round" strokeLinejoin="round" d="M10.05 4.575a1.575 1.575 0 10-3.15 0v3m3.15-3v-1.5a1.575 1.575 0 013.15 0v1.5m-3.15 0l.075 5.925m3.075.75V4.575m0 0a1.575 1.575 0 013.15 0V15M6.9 7.575V12a1.5 1.5 0 003 0v-1.5m6.75-6v1a1.5 1.5 0 01-3 0v-1m0 0V4.575a1.575 1.575 0 113.15 0V15m-3.15 0V15a1.5 1.5 0 01-3 0v-1.5" />
+                         </svg>
+                         Chế độ Nặn
+                    </span>
+                    <span className="text-[10px] text-slate-400">Tự tay mở bát kết quả.</span>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                    <input 
+                        type="checkbox" 
+                        className="sr-only peer" 
+                        checked={isHandMode}
+                        onChange={(e) => onToggleHandMode(e.target.checked)}
+                    />
+                    <div className="w-11 h-6 bg-slate-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-yellow-600"></div>
+                </label>
+            </div>
 
              {/* Hidden Toggle (Only if unlocked) */}
              {isAdminUnlocked && (
